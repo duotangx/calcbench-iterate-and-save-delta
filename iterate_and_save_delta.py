@@ -9,22 +9,27 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 # Set spark config
-spark = SparkSession.builder \
-    .appName("CalcbenchDeltaLake") \
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-    .config("spark.databricks.delta.schema.autoMerge.enabled", "true") \
-    .config("spark.hadoop.fs.s3a.access.key", os.environ.get("AWS_ACCESS_KEY_ID")) \
-    .config("spark.hadoop.fs.s3a.secret.key", os.environ.get("AWS_SECRET_ACCESS_KEY")) \
-    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
+spark = (
+    SparkSession.builder.appName("CalcbenchDeltaLake")
+    .config(
+        "spark.sql.catalog.spark_catalog",
+        "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+    )
+    .config("spark.databricks.delta.schema.autoMerge.enabled", "true")
+    .config("spark.hadoop.fs.s3a.access.key", os.environ.get("AWS_ACCESS_KEY_ID"))
+    .config("spark.hadoop.fs.s3a.secret.key", os.environ.get("AWS_SECRET_ACCESS_KEY"))
+    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
     .getOrCreate()
+)
+
 
 def iterate_and_save_delta(
-        arguments: Sequence[TypeVar],
-        f: Callable[[TypeVar], pd.DataFrame],
-        table_name: str,
-        bucket_name: str,
-        partition_cols: Optional[List[str]] = ["ticker"],
-        write_mode: Literal["overwrite", "append"] = "overwrite"
+    arguments: Sequence[TypeVar],
+    f: Callable[[TypeVar], pd.DataFrame],
+    table_name: str,
+    bucket_name: str,
+    partition_cols: Optional[List[str]] = ["ticker"],
+    write_mode: Literal["overwrite", "append"] = "overwrite",
 ):
     """
     Apply the arguments to a function and save to a Delta table.
@@ -57,43 +62,57 @@ def iterate_and_save_delta(
                 schema = spark.createDataFrame(df).schema
 
                 # Create the Delta table with the inferred schema and partitioning
-                spark.sql(f"""
+                spark.sql(
+                    f"""
                     CREATE TABLE IF NOT EXISTS {table_name} ({', '.join([f'{field.name} {field.dataType.simpleString()}' for field in schema.fields])})
                     USING DELTA
                     PARTITIONED BY ({', '.join(partition_cols)})
                     LOCATION '{root_path}'
-                """)
+                """
+                )
 
                 schema_defined = True
 
             # Write the data for the current ticker to the Delta table
-            spark.createDataFrame(df).write.format("delta").mode(write_mode).partitionBy(partition_cols).save(root_path)
+            spark.createDataFrame(df).write.format("delta").mode(
+                write_mode
+            ).partitionBy(partition_cols).save(root_path)
 
             # Refresh the table to pick up new data
             spark.sql(f"REFRESH TABLE {table_name}")
 
-# Class for interacting with Calcbench API
+
 class CalcbenchAPI:
+    """
+    Class for interacting with Calcbench API
+    """
+
     def __init__(
-            self,
-            username=os.environ.get("CB_USERNAME"),
-            password=os.environ.get("CB_PASSWORD"),
-            bucket_name="DATABRICKS-WORKSPACE-BUCKET",
-            table_name="CALCBENCH-DATA"
+        self,
+        username=None,
+        password=None,
+        bucket_name="DATABRICKS-WORKSPACE-BUCKET",
+        table_name="CALCBENCH-DATA",
     ):
+        """
+        :param username: username for Calcbench API, if this is not supplied use the calcbench_api_client logic to find it in environment variables or ask for it.
+        :param password: password for Calcbench API, if this is not supplied use the calcbench_api_client logic to find it in environment variables or ask for it.
+        """
         if username and password:
             cb.set_credentials(username, password)
         else:
             # Assume environment variables are set
             pass
         cb.enable_backoff(backoff_on=True)
-        
+
         self.bucket_name = bucket_name
         self.table_name = table_name
 
     # Helper function to fetch the data for a given ticker
     def fetch_for_ticker(self, ticker):
-        data = cb.standardized(company_identifiers=[ticker], point_in_time=True).reset_index()
+        data = cb.standardized(
+            company_identifiers=[ticker], point_in_time=True
+        ).reset_index()
 
         if data is None:
             print(f"No data found for ticker: {ticker}")
@@ -111,10 +130,10 @@ class CalcbenchAPI:
             bucket_name=self.bucket_name,
             partition_cols=["ticker"],
             # Delta Lake write mode uses "overwrite" or "append" instead of "w" or "a"
-            write_mode="append"
+            write_mode="append",
         )
-    
+
+
 # Fetch data
 cb_api = CalcbenchAPI()
 cb_api.update_data()
-        
