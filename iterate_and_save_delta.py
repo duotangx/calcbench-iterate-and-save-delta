@@ -82,15 +82,22 @@ def iterate_and_save_delta(
             spark.sql(f"REFRESH TABLE {table_name}")
 
 
-# Class for interacting with Calcbench API
 class CalcbenchAPI:
+    """
+    Class for interacting with Calcbench API
+    """
+
     def __init__(
         self,
-        username=os.environ.get("CB_USERNAME"),
-        password=os.environ.get("CB_PASSWORD"),
+        username=None,
+        password=None,
         bucket_name="DATABRICKS-WORKSPACE-BUCKET",
         table_name="CALCBENCH-DATA",
     ):
+        """
+        :param username: username for Calcbench API, if this is not supplied use the calcbench_api_client logic to find it in environment variables or ask for it.
+        :param password: password for Calcbench API, if this is not supplied use the calcbench_api_client logic to find it in environment variables or ask for it.
+        """
         if username and password:
             cb.set_credentials(username, password)
         else:
